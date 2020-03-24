@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 # coding=utf-8
-#================================================================
+# ================================================================
 #   Copyright (C) 2019 * Ltd. All rights reserved.
 #
 #   Editor      : VIM
@@ -9,7 +9,7 @@
 #   Created date: 2019-07-12 19:36:53
 #   Description :
 #
-#================================================================
+# ================================================================
 
 import cv2
 import time
@@ -18,13 +18,12 @@ import core.utils as utils
 import tensorflow as tf
 from core.yolov3 import YOLOv3, decode
 
-
-video_path      = "./docs/road.mp4"
+video_path = "./docs/road.mp4"
 # video_path      = 0
-num_classes     = 80
-input_size      = 416
+num_classes = 80
+input_size = 416
 
-input_layer  = tf.keras.layers.Input([input_size, input_size, 3])
+input_layer = tf.keras.layers.Input([input_size, input_size, 3])
 feature_maps = YOLOv3(input_layer)
 
 bbox_tensors = []
@@ -58,13 +57,10 @@ while True:
     image = utils.draw_bbox(frame, bboxes)
 
     result = np.asarray(image)
-    info = "time: %.2f ms" %(1000*exec_time)
+    info = "time: %.2f ms" % (1000 * exec_time)
     cv2.putText(result, text=info, org=(50, 70), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                 fontScale=1, color=(255, 0, 0), thickness=2)
     cv2.namedWindow("result", cv2.WINDOW_AUTOSIZE)
     result = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     cv2.imshow("result", result)
     if cv2.waitKey(1) & 0xFF == ord('q'): break
-
-
-

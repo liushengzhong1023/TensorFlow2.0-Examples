@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 # coding=utf-8
-#================================================================
+# ================================================================
 #   Copyright (C) 2019 * Ltd. All rights reserved.
 #
 #   Editor      : VIM
@@ -9,7 +9,7 @@
 #   Created date: 2019-07-19 10:29:34
 #   Description :
 #
-#================================================================
+# ================================================================
 
 import cv2
 import os
@@ -20,10 +20,9 @@ import core.utils as utils
 from core.config import cfg
 from core.yolov3 import YOLOv3, decode
 
-
-INPUT_SIZE   = 416
-NUM_CLASS    = len(utils.read_class_names(cfg.YOLO.CLASSES))
-CLASSES      = utils.read_class_names(cfg.YOLO.CLASSES)
+INPUT_SIZE = 416
+NUM_CLASS = len(utils.read_class_names(cfg.YOLO.CLASSES))
+CLASSES = utils.read_class_names(cfg.YOLO.CLASSES)
 
 predicted_dir_path = '../mAP/predicted'
 ground_truth_dir_path = '../mAP/ground-truth'
@@ -36,7 +35,7 @@ os.mkdir(ground_truth_dir_path)
 os.mkdir(cfg.TEST.DECTECTED_IMAGE_PATH)
 
 # Build Model
-input_layer  = tf.keras.layers.Input([INPUT_SIZE, INPUT_SIZE, 3])
+input_layer = tf.keras.layers.Input([INPUT_SIZE, INPUT_SIZE, 3])
 feature_maps = YOLOv3(input_layer)
 
 bbox_tensors = []
@@ -57,8 +56,8 @@ with open(cfg.TEST.ANNOT_PATH, 'r') as annotation_file:
         bbox_data_gt = np.array([list(map(int, box.split(','))) for box in annotation[1:]])
 
         if len(bbox_data_gt) == 0:
-            bboxes_gt=[]
-            classes_gt=[]
+            bboxes_gt = []
+            classes_gt = []
         else:
             bboxes_gt, classes_gt = bbox_data_gt[:, :4], bbox_data_gt[:, 4]
         ground_truth_path = os.path.join(ground_truth_dir_path, str(num) + '.txt')
@@ -85,10 +84,9 @@ with open(cfg.TEST.ANNOT_PATH, 'r') as annotation_file:
         bboxes = utils.postprocess_boxes(pred_bbox, image_size, INPUT_SIZE, cfg.TEST.SCORE_THRESHOLD)
         bboxes = utils.nms(bboxes, cfg.TEST.IOU_THRESHOLD, method='nms')
 
-
         if cfg.TEST.DECTECTED_IMAGE_PATH is not None:
             image = utils.draw_bbox(image, bboxes)
-            cv2.imwrite(cfg.TEST.DECTECTED_IMAGE_PATH+image_name, image)
+            cv2.imwrite(cfg.TEST.DECTECTED_IMAGE_PATH + image_name, image)
 
         with open(predict_result_path, 'w') as f:
             for bbox in bboxes:
@@ -101,4 +99,3 @@ with open(cfg.TEST.ANNOT_PATH, 'r') as annotation_file:
                 bbox_mess = ' '.join([class_name, score, xmin, ymin, xmax, ymax]) + '\n'
                 f.write(bbox_mess)
                 print('\t' + str(bbox_mess).strip())
-

@@ -26,7 +26,7 @@ from waymo_open_dataset.utils import frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
 
 from waymo_process.parse_frame import extract_image_and_label_from_frame, extract_frame_list
-from waymo_process.schedule_frame import serialize_full_frames
+from waymo_process.schedule_frame import serialize_full_frames, serialize_partial_frames, batched_partial_frames
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -46,6 +46,7 @@ original_image_size = original_image.shape[:2]
 # resize into [input_size, input_size]
 image_data = utils.image_preprocess(np.copy(original_image), [input_size, input_size])
 image_data = image_data[np.newaxis, ...].astype(np.float32)
+# print(np.shape(image_data))
 
 # -----------------------------------------------Load Waymo data--------------------------------------------------------
 '''
@@ -65,6 +66,8 @@ print("File reading and parsing time: %f s" % (end-start))
 # form the queue of image batches
 start = time.time()
 image_queue = serialize_full_frames(frame_list)
+# image_queue = serialize_partial_frames(frame_list)
+# image_queue = batched_partial_frames(frame_list)
 end = time.time()
 print("------------------------------------------------------------------------")
 print('Batch count: ' + str(len(image_queue)))
@@ -84,14 +87,20 @@ for i, fm in enumerate(feature_maps):
 model = tf.keras.Model(inputs=input_layer, outputs=bbox_tensors)
 utils.load_weights(model, "./yolov3.weights")
 
-# Print a useful summary of the model
-# model.summary()
-
 # # ------------------------------------------------------Perform prediction----------------------------------------------
 # Do inference on the batches in image queue
+# warm up run
+first_batch = image_queue[0]
+for _ in range(5):
+    pred_bbox = model.predict(first_batch)
+    pred_bbox = [tf.reshape(x, (-1, tf.shape(x)[-1])) for x in pred_bbox]
+    pred_bbox = tf.concat(pred_bbox, axis=0)
+    bboxes = utils.postprocess_boxes(pred_bbox, original_image_size, input_size, 0.3)
+    bboxes = utils.nms(bboxes, 0.45, method='nms')
+
 start = time.time()
 for image_batch in image_queue:
-    pred_bbox = model.predict(image_data)
+    pred_bbox = model.predict(image_batch)
     pred_bbox = [tf.reshape(x, (-1, tf.shape(x)[-1])) for x in pred_bbox]
     pred_bbox = tf.concat(pred_bbox, axis=0)
     bboxes = utils.postprocess_boxes(pred_bbox, original_image_size, input_size, 0.3)
@@ -100,7 +109,3 @@ end = time.time()
 print("------------------------------------------------------------------------")
 print("Total inference time: %f s" % (end - start))
 print("Inference time per frame: %f s" % ((end - start) / frame_count))
-#
-# image = utils.draw_bbox(original_image, bboxes)
-# image = Image.fromarray(image)
-# image.show()

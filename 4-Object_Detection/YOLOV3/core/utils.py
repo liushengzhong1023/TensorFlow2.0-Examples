@@ -86,7 +86,7 @@ def image_preprocess(image, target_size=None, gt_boxes=None):
     # Make sure the new size is divisible tby 32.
     if target_size is None:
         image_size = image.shape[:2]
-        if image_size[0] % 32 == 0 and image_size[1]%32==0:
+        if image_size[0] % 32 == 0 and image_size[1] % 32 == 0:
             image_padded = image / 255.
             image_padded = image_padded.astype(np.float32)
             if gt_boxes is None:
@@ -97,8 +97,8 @@ def image_preprocess(image, target_size=None, gt_boxes=None):
             ih = math.ceil(image_size[0] / 32) * 32
             iw = math.ceil(image_size[1] / 32) * 32
     else:
-        ih = math.ceil(target_size[0] / 32) * 32
-        iw = math.ceil(target_size[1] / 32) * 32
+        ih = math.ceil(target_size[1] / 32) * 32
+        iw = math.ceil(target_size[0] / 32) * 32
 
     h, w, _ = image.shape
 

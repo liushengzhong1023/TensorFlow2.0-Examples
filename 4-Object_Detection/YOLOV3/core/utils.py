@@ -13,6 +13,7 @@
 
 import cv2
 import random
+import math
 import colorsys
 import numpy as np
 from core.config import cfg
@@ -78,22 +79,44 @@ def get_anchors(anchors_path):
     return anchors.reshape(3, 3, 2)
 
 
-def image_preporcess(image, target_size, gt_boxes=None):
+def image_preprocess(image, target_size=None, gt_boxes=None):
     '''
     Resize the given image and the given ground truth bounding boxes (optional).
     '''
-    ih, iw = target_size
+    # Make sure the new size is divisible tby 32.
+    if target_size is None:
+        image_size = image.shape[:2]
+        if image_size[0] % 32 == 0 and image_size[1]%32==0:
+            image_padded = image / 255.
+            image_padded = image_padded.astype(np.float32)
+            if gt_boxes is None:
+                return image_padded
+            else:
+                return image_padded, gt_boxes
+        else:
+            ih = math.ceil(image_size[0] / 32) * 32
+            iw = math.ceil(image_size[1] / 32) * 32
+    else:
+        ih = math.ceil(target_size[0] / 32) * 32
+        iw = math.ceil(target_size[1] / 32) * 32
+
     h, w, _ = image.shape
 
+    # letter box resize, where the aspect-ratio is preserved.
     scale = min(iw / w, ih / h)
     nw, nh = int(scale * w), int(scale * h)
     image_resized = cv2.resize(image, (nw, nh))
 
+    # pad the surrounding of image_resized
     image_paded = np.full(shape=[ih, iw, 3], fill_value=128.0)
     dw, dh = (iw - nw) // 2, (ih - nh) // 2
     image_paded[dh:nh + dh, dw:nw + dw, :] = image_resized
-    image_paded = image_paded / 255.
 
+    # normalize the pixel value
+    image_paded = image_paded / 255.
+    image_paded = image_paded.astype(np.float32)
+
+    # (optional) resize the bounding boxes
     if gt_boxes is None:
         return image_paded
     else:

@@ -1,5 +1,5 @@
 import numpy as np
-
+import core.utils as utils
 
 
 '''
@@ -11,11 +11,21 @@ Supported policies:
 '''
 
 
-def serialize_full_frames(extracted_frame):
+def serialize_full_frames(frame_list):
     '''
-    Serialized full frames.
+    Serialized full frames. We do not consider any bounding box here.
     '''
-    pass
+    image_queue = []
+    for extracted_frame in frame_list:
+        for camera_name in extracted_frame:
+            image = extracted_frame[camera_name]['image']
+            preprocessed_image = utils.image_preprocess(np.copy(image))
+
+            # no batch
+            preprocessed_image = preprocessed_image[np.newaxis, ...]
+            image_queue.append(preprocessed_image)
+
+    return image_queue
 
 
 def serialize_partial_frames(extracted_frame):

@@ -16,6 +16,9 @@ import core.common as common
 
 
 def darknet53(input_data):
+    '''
+    If downsample=True, the feature map size will be decreased by a factor of 2.
+    '''
 
     input_data = common.convolutional(input_data, (3, 3,  3,  32))
     input_data = common.convolutional(input_data, (3, 3, 32,  64), downsample=True)

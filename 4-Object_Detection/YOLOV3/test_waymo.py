@@ -28,7 +28,7 @@ from waymo_open_dataset import dataset_pb2 as open_dataset
 from waymo_process.parse_frame import extract_image_and_label_from_frame, extract_frame_list
 from waymo_process.schedule_frame import serialize_full_frames, serialize_partial_frames, batched_partial_frames
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 # ----------------------------------------------Load Regular Image------------------------------------------------------
 '''
@@ -65,9 +65,9 @@ print("File reading and parsing time: %f s" % (end-start))
 
 # form the queue of image batches
 start = time.time()
-image_queue = serialize_full_frames(frame_list)
+# image_queue = serialize_full_frames(frame_list)
 # image_queue = serialize_partial_frames(frame_list)
-# image_queue = batched_partial_frames(frame_list)
+image_queue = batched_partial_frames(frame_list)
 end = time.time()
 print("------------------------------------------------------------------------")
 print('Batch count: ' + str(len(image_queue)))

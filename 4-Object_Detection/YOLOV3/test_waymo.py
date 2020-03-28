@@ -1,16 +1,3 @@
-#! /usr/bin/env python
-# coding=utf-8
-# ================================================================
-#   Copyright (C) 2019 * Ltd. All rights reserved.
-#
-#   Editor      : VIM
-#   File name   : image_demo.py
-#   Author      : YunYang1994
-#   Created date: 2019-07-12 13:07:27
-#   Description :
-#
-# ================================================================
-
 import cv2
 import os
 import time
@@ -27,11 +14,10 @@ from waymo_open_dataset.utils import frame_utils
 from waymo_open_dataset import dataset_pb2 as open_dataset
 
 from waymo_process.parse_frame import extract_image_and_label_from_frame, extract_frame_list
-from waymo_process.schedule_frame import serialize_full_frames, serialize_partial_frames, batched_partial_frames, \
-    prioritize_serialize_partial_frames
-from waymo_process.partial_frame_postprocess import postprocess_box_one_batch
+from waymo_process.schedule_frame import *
+from waymo_process.partial_frame_postprocess import *
 
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 # arg parser
 parser = argparse.ArgumentParser()
@@ -59,7 +45,7 @@ input_file = "/home/sl29/data/Waymo/validation/segment-10448102132863604198_472_
 
 # Extract the whole segment, should have 200 frames
 start = time.time()
-frame_list = extract_frame_list(input_file, use_single_camera=True)
+frame_list = extract_frame_list(input_file, use_single_camera=False)
 frame_count = len(frame_list)
 end = time.time()
 print("------------------------------------------------------------------------")
@@ -109,6 +95,7 @@ for extracted_frame in frame_list:
     print('Batch count: ' + str(len(image_queue)))
     # print("Scheduling time: %f s" % (end - start))
 
+    pred_bbox_list = []
     for (i, image_batch) in enumerate(image_queue):
         pred_bbox = model.predict(image_batch)
         pred_bbox = [tf.reshape(x, (-1, tf.shape(x)[-1])) for x in pred_bbox]
@@ -117,6 +104,10 @@ for extracted_frame in frame_list:
         if args.scheduling_policy == "prioritize_serialize_partial_frames":
             frame_meta = meta_queue[i]
             processed_bboxes = postprocess_box_one_batch(pred_bbox, frame_meta)
+            pred_bbox_list.append(processed_bboxes)
+
+    # merge and map partial frame pred bbox
+    frame_pred_bbox = merge_partial_pred_bbox(pred_bbox_list)
 
 end = time.time()
 print("------------------------------------------------------------------------")

@@ -6,7 +6,7 @@ import core.utils as utils
 from waymo_process.PriorityQueue import PriorityQueue
 
 '''
-This file provide different scheduling strategies for frames.
+This file provide different scheduling strategies for images within ***single*** frame.
 Supported policies:
     1) Serialized full frames
     2) Serialized partial frames
@@ -14,140 +14,137 @@ Supported policies:
 '''
 
 
-def serialize_full_frames(frame_list):
+def serialize_full_frames(extracted_frame):
     '''
     Serialized full frames. We do not consider any bounding box here.
     '''
     image_queue = []
-    # duration_list = []
-    # duration_list2 = []
-    for extracted_frame in frame_list:
-        for camera_name in extracted_frame:
-            image = extracted_frame[camera_name]['image']
-            # start = time.time()
-            preprocessed_image = utils.image_preprocess(np.copy(image))
-            # end = time.time()
-            # if np.shape(image)[0] > 1000 and np.shape(image)[1] > 1000:
-            #     duration_list.append(end-start)
-            # else:
-            #     duration_list2.append(end-start)
 
-            # no batching
-            preprocessed_image = preprocessed_image[np.newaxis, ...]
-            image_queue.append(preprocessed_image)
+    for camera_name in extracted_frame:
+        image = extracted_frame[camera_name]['image']
+        preprocessed_image = utils.image_preprocess(np.copy(image))
 
-    # avg_duratioin = np.mean(duration_list)
-    # print("Average image preprocessing time: %f s" % avg_duratioin)
-    #
-    # avg_duratioin2= np.mean(duration_list2)
-    # print("Average image preprocessing time with resize: %f s" % avg_duratioin2)
+        # no batching
+        preprocessed_image = preprocessed_image[np.newaxis, ...]
+        image_queue.append(preprocessed_image)
 
     return image_queue
 
 
-def serialize_partial_frames(frame_list):
+def serialize_partial_frames(extracted_frame):
     '''
     Serialized partial frames. Specifically, each bounding box is processed sequentially.
     '''
     image_queue = []
-    for extracted_frame in frame_list:
-        for camera_name in extracted_frame:
 
-            image = extracted_frame[camera_name]['image']
-            bbox_list = extracted_frame[camera_name]['bbox_list']
-            for bbox in bbox_list:
-                min_x, min_y, max_x, max_y = bbox['value']
-                min_x = math.floor(min_x)
-                min_y = math.floor(min_y)
-                max_x = math.ceil(max_x)
-                max_y = math.ceil(max_y)
+    for camera_name in extracted_frame:
 
-                # extract partial image
-                partial_image = image[min_y:max_y, min_x:max_x, :]
-                preprocessed_partial_image = utils.image_preprocess(np.copy(partial_image))
+        image = extracted_frame[camera_name]['image']
+        bbox_list = extracted_frame[camera_name]['bbox_list']
+        for bbox in bbox_list:
+            min_x, min_y, max_x, max_y = bbox['value']
+            min_x = math.floor(min_x)
+            min_y = math.floor(min_y)
+            max_x = math.ceil(max_x)
+            max_y = math.ceil(max_y)
 
-                # no batching
-                preprocessed_partial_image = preprocessed_partial_image[np.newaxis, ...]
-                image_queue.append(preprocessed_partial_image)
+            # extract partial image
+            partial_image = image[min_y:max_y, min_x:max_x, :]
+            preprocessed_partial_image = utils.image_preprocess(np.copy(partial_image))
+
+            # no batching
+            preprocessed_partial_image = preprocessed_partial_image[np.newaxis, ...]
+            image_queue.append(preprocessed_partial_image)
 
     return image_queue
 
 
-def prioritize_serialize_partial_frames(frame_list):
+def prioritize_serialize_partial_frames(extracted_frame):
     '''
-
+    Use risk level as priority to schedule the paritial frames in serialized order.
     '''
     image_queue = PriorityQueue()
 
-    for extracted_frame in frame_list:
-        for camera_name in extracted_frame:
+    for camera_name in extracted_frame:
+        frame_id = extracted_frame[camera_name]['frame_id']
+        image = extracted_frame[camera_name]['image']
+        bbox_list = extracted_frame[camera_name]['bbox_list']
+        for bbox in bbox_list:
+            min_x, min_y, max_x, max_y = bbox['value']
+            min_x = math.floor(min_x)
+            min_y = math.floor(min_y)
+            max_x = math.ceil(max_x)
+            max_y = math.ceil(max_y)
 
-            image = extracted_frame[camera_name]['image']
-            bbox_list = extracted_frame[camera_name]['bbox_list']
-            for bbox in bbox_list:
-                min_x, min_y, max_x, max_y = bbox['value']
-                min_x = math.floor(min_x)
-                min_y = math.floor(min_y)
-                max_x = math.ceil(max_x)
-                max_y = math.ceil(max_y)
+            # extract partial image
+            partial_image = image[min_y:max_y, min_x:max_x, :]
+            preprocessed_partial_image, original_size, new_size = utils.image_preprocess(np.copy(partial_image))
+            partial_frame_offset = [min_x, min_y]
 
-                # extract partial image
-                partial_image = image[min_y:max_y, min_x:max_x, :]
-                preprocessed_partial_image = utils.image_preprocess(np.copy(partial_image))
+            # no batching
+            preprocessed_partial_image = preprocessed_partial_image[np.newaxis, ...]
 
-                # no batching
-                preprocessed_partial_image = preprocessed_partial_image[np.newaxis, ...]
-                image_queue.push(preprocessed_partial_image, priority=bbox['risk'])
+            # ensemble the item
+            item = {'image': preprocessed_partial_image,
+                    'original_size': original_size,
+                    'new_size': new_size,
+                    'partial_frame_offset': partial_frame_offset,
+                    'camera_name': camera_name,
+                    'frame_id': frame_id}
 
-    output_queue = image_queue.pop_all_item_list()
+            # enque
+            image_queue.push(item, priority=bbox['risk'])
 
-    return output_queue
+    output_meta_queue = image_queue.pop_all_item_list()
+    output_image_queue = [item['image'] for item in output_meta_queue]
+
+    return output_image_queue, output_meta_queue
 
 
-def batched_partial_frames(frame_list):
+def batched_partial_frames(extracted_frame):
     '''
     Batched partial frames. Specifically, bounding boxes with similar sizes are unified and batched.
     TODO: How to preset the best image size for each batch?
     '''
     image_queue = []
-    for extracted_frame in frame_list:
-        # initialize frame batches
-        frame_batches = dict()
-        frame_batches[(160, 96)] = []
-        frame_batches[(256, 160)] = []
-        frame_batches[(480, 320)] = []
 
-        for camera_name in extracted_frame:
-            image = extracted_frame[camera_name]['image']
-            bbox_list = extracted_frame[camera_name]['bbox_list']
-            for bbox in bbox_list:
-                min_x, min_y, max_x, max_y = bbox['value']
-                min_x = math.floor(min_x)
-                min_y = math.floor(min_y)
-                max_x = math.ceil(max_x)
-                max_y = math.ceil(max_y)
+    # initialize frame batches
+    frame_batches = dict()
+    frame_batches[(160, 96)] = []
+    frame_batches[(256, 160)] = []
+    frame_batches[(480, 320)] = []
 
-                # extract partial image
-                partial_image = image[min_y:max_y, min_x:max_x, :]
-                width = max_x - min_x
-                height = max_y - min_y
+    for camera_name in extracted_frame:
+        image = extracted_frame[camera_name]['image']
+        bbox_list = extracted_frame[camera_name]['bbox_list']
+        for bbox in bbox_list:
+            min_x, min_y, max_x, max_y = bbox['value']
+            min_x = math.floor(min_x)
+            min_y = math.floor(min_y)
+            max_x = math.ceil(max_x)
+            max_y = math.ceil(max_y)
 
-                # decide new size
-                if width <= 192 and height <= 128:
-                    new_size = (160, 96)
-                elif width >= 384 and height >= 256:
-                    new_size = (480, 320)
-                else:
-                    new_size = (256, 160)
+            # extract partial image
+            partial_image = image[min_y:max_y, min_x:max_x, :]
+            width = max_x - min_x
+            height = max_y - min_y
 
-                preprocessed_partial_image = utils.image_preprocess(np.copy(partial_image), target_size=new_size)
-                frame_batches[new_size].append(preprocessed_partial_image)
+            # decide new size
+            if width <= 192 and height <= 128:
+                new_size = (160, 96)
+            elif width >= 384 and height >= 256:
+                new_size = (480, 320)
+            else:
+                new_size = (256, 160)
 
-        # batching
-        for new_size in frame_batches:
-            batch = np.array(frame_batches[new_size])
-            # print(np.shape(batch))
-            image_queue.append(batch)
-        # print()
+            preprocessed_partial_image = utils.image_preprocess(np.copy(partial_image), target_size=new_size)
+            frame_batches[new_size].append(preprocessed_partial_image)
+
+    # batching
+    for new_size in frame_batches:
+        batch = np.array(frame_batches[new_size])
+        # print(np.shape(batch))
+        image_queue.append(batch)
+    # print()
 
     return image_queue

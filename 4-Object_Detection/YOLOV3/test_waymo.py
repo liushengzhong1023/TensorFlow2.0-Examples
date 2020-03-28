@@ -14,6 +14,7 @@
 import cv2
 import os
 import time
+import argparse
 import numpy as np
 import core.utils as utils
 import tensorflow as tf
@@ -28,9 +29,27 @@ from waymo_open_dataset import dataset_pb2 as open_dataset
 from waymo_process.parse_frame import extract_image_and_label_from_frame, extract_frame_list
 from waymo_process.schedule_frame import serialize_full_frames, serialize_partial_frames, batched_partial_frames, \
     prioritize_serialize_partial_frames
+from waymo_process.partial_frame_postprocess import postprocess_box_one_batch
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
+# arg parser
+parser = argparse.ArgumentParser()
+parser.add_argument("-scheduling_policy", type=str,
+                    default="prioritize_serialize_partial_frames",
+                    help="The choice of scheduling policy.")
+args = parser.parse_args()
+
+# -----------------------------------------------Load warm up image-----------------------------------------------------
+warmup_input_size = 416
+warmup_image_path = "./docs/kite.jpg"
+
+original_image = cv2.imread(warmup_image_path)
+original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
+original_image_size = original_image.shape[:2]
+
+warmup_image_data, _, _ = utils.image_preprocess(np.copy(original_image), [warmup_input_size, warmup_input_size])
+warmup_image_data = warmup_image_data[np.newaxis, ...].astype(np.float32)
 
 # -----------------------------------------------Load Waymo data--------------------------------------------------------
 '''
@@ -38,7 +57,7 @@ Output is a numpy array of given size: [1, input_size, input_size, 3], batch siz
 '''
 input_file = "/home/sl29/data/Waymo/validation/segment-10448102132863604198_472_000_492_000_with_camera_labels.tfrecord"
 
-# extract the whole segment, should have 200 frames
+# Extract the whole segment, should have 200 frames
 start = time.time()
 frame_list = extract_frame_list(input_file, use_single_camera=True)
 frame_count = len(frame_list)
@@ -46,17 +65,6 @@ end = time.time()
 print("------------------------------------------------------------------------")
 print("Frame count: " + str(frame_count))
 print("File reading and parsing time: %f s" % (end - start))
-
-# form the queue of image batches
-start = time.time()
-# image_queue = serialize_full_frames(frame_list)
-# image_queue = serialize_partial_frames(frame_list)
-image_queue = prioritize_serialize_partial_frames(frame_list)
-# image_queue = batched_partial_frames(frame_list)
-end = time.time()
-print("------------------------------------------------------------------------")
-print('Batch count: ' + str(len(image_queue)))
-print("Scheduling time: %f s" % (end - start))
 
 # ---------------------------------------Initialize input layer and YOLOv3 model----------------------------------------
 # NOTE: the shape param does not include the batch size
@@ -72,24 +80,44 @@ for i, fm in enumerate(feature_maps):
 model = tf.keras.Model(inputs=input_layer, outputs=bbox_tensors)
 utils.load_weights(model, "./yolov3.weights")
 
-# # ------------------------------------------------------Perform prediction----------------------------------------------
-# Do inference on the batches in image queue
+# # ---------------------------------------------Scheduling & Inference-------------------------------------------------
+'''
+Each frame is scheduled and predicted in serialized order; the scheduling within each frame is considered.
+
+'''
 # warm up run
-first_batch = image_queue[0]
 for _ in range(5):
-    pred_bbox = model.predict(first_batch)
+    pred_bbox = model.predict(warmup_image_data)
     pred_bbox = [tf.reshape(x, (-1, tf.shape(x)[-1])) for x in pred_bbox]
     pred_bbox = tf.concat(pred_bbox, axis=0)
-    # bboxes = utils.postprocess_boxes(pred_bbox, original_image_size, input_size, 0.3)
-    # bboxes = utils.nms(bboxes, 0.45, method='nms')
+    bboxes = utils.postprocess_boxes(pred_bbox, original_image_size, [warmup_input_size, warmup_input_size], 0.3)
+    bboxes = utils.nms(bboxes, 0.45, method='nms')
 
 start = time.time()
-for image_batch in image_queue:
-    pred_bbox = model.predict(image_batch)
-    pred_bbox = [tf.reshape(x, (-1, tf.shape(x)[-1])) for x in pred_bbox]
-    pred_bbox = tf.concat(pred_bbox, axis=0)
-    # bboxes = utils.postprocess_boxes(pred_bbox, original_image_size, input_size, 0.3)
-    # bboxes = utils.nms(bboxes, 0.45, method='nms')
+
+for extracted_frame in frame_list:
+    if args.scheduling_policy == "serialize_full_frames":
+        image_queue = serialize_full_frames(extracted_frame)
+    elif args.scheduling_policy == "serialize_partial_frames":
+        image_queue = serialize_partial_frames(extracted_frame)
+    elif args.scheduling_policy == "prioritize_serialize_partial_frames":
+        image_queue, meta_queue = prioritize_serialize_partial_frames(extracted_frame)
+    else:
+        image_queue = batched_partial_frames(extracted_frame)
+    end = time.time()
+    print("------------------------------------------------------------------------")
+    print('Batch count: ' + str(len(image_queue)))
+    # print("Scheduling time: %f s" % (end - start))
+
+    for (i, image_batch) in enumerate(image_queue):
+        pred_bbox = model.predict(image_batch)
+        pred_bbox = [tf.reshape(x, (-1, tf.shape(x)[-1])) for x in pred_bbox]
+        pred_bbox = tf.concat(pred_bbox, axis=0)
+
+        if args.scheduling_policy == "prioritize_serialize_partial_frames":
+            frame_meta = meta_queue[i]
+            processed_bboxes = postprocess_box_one_batch(pred_bbox, frame_meta)
+
 end = time.time()
 print("------------------------------------------------------------------------")
 print("Total inference time: %f s" % (end - start))

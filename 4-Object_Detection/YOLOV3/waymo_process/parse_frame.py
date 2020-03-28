@@ -52,6 +52,7 @@ def extract_image_and_label_from_frame(frame, use_single_camera=False):
             The second level dict['image']=image, dict['bbox_list']=list of bounding boxes
     '''
     parsed_frame = dict()
+    frame_id = frame.timestamp_micros
 
     # process front camera only
     if use_single_camera:
@@ -77,6 +78,7 @@ def extract_image_and_label_from_frame(frame, use_single_camera=False):
         if image_camera_name not in parsed_frame:
             parsed_frame[image_camera_name] = dict()
         parsed_frame[image_camera_name]['image'] = parse_image_from_buffer(image.image)
+        parsed_frame[image_camera_name]['frame_id'] = frame_id
 
     # extract the bounding boxes for each camera
     for camera_label in frame.camera_labels:
@@ -101,7 +103,6 @@ def extract_image_and_label_from_frame(frame, use_single_camera=False):
                     risk = laser_object_risks[matched_laser_object_id]
 
                 # print(str(matched_laser_object_id) + " " + str(risk))
-
                 parsed_frame[label_camera_name]['bbox_list'].append({'class': bbox_class, 'value': bbox, 'risk': risk})
 
     return parsed_frame

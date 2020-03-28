@@ -82,25 +82,25 @@ def get_anchors(anchors_path):
 def image_preprocess(image, target_size=None, gt_boxes=None):
     '''
     Resize the given image and the given ground truth bounding boxes (optional).
+    Returns: new_image, original_size, new_size, new_gt_boxes (optional)
     '''
+    h, w, _ = image.shape
+
     # Make sure the new size is divisible tby 32.
     if target_size is None:
-        image_size = image.shape[:2]
-        if image_size[0] % 32 == 0 and image_size[1] % 32 == 0:
+        if h % 32 == 0 and w % 32 == 0:
             image_padded = image / 255.
             image_padded = image_padded.astype(np.float32)
             if gt_boxes is None:
-                return image_padded
+                return image_padded, [h, w], [h, w]
             else:
-                return image_padded, gt_boxes
+                return image_padded, [h, w], [h, w], gt_boxes
         else:
-            ih = math.ceil(image_size[0] / 32) * 32
-            iw = math.ceil(image_size[1] / 32) * 32
+            ih = math.ceil(h / 32) * 32
+            iw = math.ceil(w / 32) * 32
     else:
-        ih = math.ceil(target_size[1] / 32) * 32
-        iw = math.ceil(target_size[0] / 32) * 32
-
-    h, w, _ = image.shape
+        ih = math.ceil(target_size[0] / 32) * 32
+        iw = math.ceil(target_size[1] / 32) * 32
 
     # letter box resize, where the aspect-ratio is preserved.
     scale = min(iw / w, ih / h)
@@ -118,11 +118,11 @@ def image_preprocess(image, target_size=None, gt_boxes=None):
 
     # (optional) resize the bounding boxes
     if gt_boxes is None:
-        return image_paded
+        return image_paded, [h, w], [ih, iw]
     else:
         gt_boxes[:, [0, 2]] = gt_boxes[:, [0, 2]] * scale + dw
         gt_boxes[:, [1, 3]] = gt_boxes[:, [1, 3]] * scale + dh
-        return image_paded, gt_boxes
+        return image_paded, [h, w], [ih, iw], gt_boxes
 
 
 def draw_bbox(image, bboxes, classes=read_class_names(cfg.YOLO.CLASSES), show_label=True):

@@ -45,7 +45,7 @@ input_file = "/home/sl29/data/Waymo/validation/segment-10448102132863604198_472_
 
 # Extract the whole segment, should have 200 frames
 start = time.time()
-frame_list = extract_frame_list(input_file, use_single_camera=False)
+frame_list = extract_frame_list(input_file, use_single_camera=False, load_one_frame=True)
 frame_count = len(frame_list)
 end = time.time()
 print("------------------------------------------------------------------------")
@@ -64,7 +64,8 @@ for i, fm in enumerate(feature_maps):
     bbox_tensors.append(bbox_tensor)
 
 model = tf.keras.Model(inputs=input_layer, outputs=bbox_tensors)
-utils.load_weights(model, "./yolov3.weights")
+utils.load_weights(model,
+                   "/home/sl29/DeepScheduling/src/TensorFlow2.0-Examples/4-Object_Detection/YOLOV3/yolov3.weights")
 
 # # ---------------------------------------------Scheduling & Inference-------------------------------------------------
 '''
@@ -82,6 +83,7 @@ for _ in range(5):
 start = time.time()
 
 for extracted_frame in frame_list:
+    # scheduling
     if args.scheduling_policy == "serialize_full_frames":
         image_queue = serialize_full_frames(extracted_frame)
     elif args.scheduling_policy == "serialize_partial_frames":
@@ -91,9 +93,8 @@ for extracted_frame in frame_list:
     else:
         image_queue = batched_partial_frames(extracted_frame)
     end = time.time()
-    print("------------------------------------------------------------------------")
-    print('Batch count: ' + str(len(image_queue)))
-    # print("Scheduling time: %f s" % (end - start))
+    # print("------------------------------------------------------------------------")
+    # print('Batch count: ' + str(len(image_queue)))
 
     pred_bbox_list = []
     for (i, image_batch) in enumerate(image_queue):
@@ -108,6 +109,22 @@ for extracted_frame in frame_list:
 
     # merge and map partial frame pred bbox
     frame_pred_bbox = merge_partial_pred_bbox(pred_bbox_list)
+
+    # show the image and bounding boxes
+    if len(frame_list) == 1:
+        for camera_name in extracted_frame:
+            image = extracted_frame[camera_name]['image']
+
+            # add bounding boxes if exist
+            if camera_name in frame_pred_bbox:
+                pred_bboxes = frame_pred_bbox[camera_name]
+                image = utils.draw_bbox(image, pred_bboxes)
+            image = Image.fromarray(image)
+
+            # save file
+            file_path = "/home/sl29/DeepScheduling/figure/visualization"
+            file_name = os.path.join(file_path, open_dataset.CameraName.Name.Name(camera_name) + ".jpg")
+            image.save(file_name)
 
 end = time.time()
 print("------------------------------------------------------------------------")

@@ -108,7 +108,7 @@ def extract_image_and_label_from_frame(frame, use_single_camera=False):
     return parsed_frame
 
 
-def extract_frame_list(input_file, use_single_camera=False):
+def extract_frame_list(input_file, use_single_camera=False, load_one_frame=False):
     '''
     Extract frame list from the given video file.
     NOTE: data.numpy() requires TF eager execution. The .numpy() method explicitly converts a Tensor to a numpy array.
@@ -124,7 +124,9 @@ def extract_frame_list(input_file, use_single_camera=False):
         count += 1
         parsed_frame = extract_image_and_label_from_frame(frame, use_single_camera)
         frame_list.append(parsed_frame)
-        break
+
+        if load_one_frame:
+            break
     # end = time.time()
 
     # print("------------------------------------------------------------------------")

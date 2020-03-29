@@ -5,6 +5,7 @@ import core.utils as utils
 Postprocessing for partial frames. Convert the partial predictions to original frames.
 '''
 
+
 def postprocess_box_one_batch(pred_bbox, frame_meta):
     '''
     Post process function for partial frame predictions. Attach necessary meta info to the prediction.
@@ -34,14 +35,12 @@ def map_partial_bbox_to_global(bboxes, partial_frame_offset):
     '''
     mapped_bboxes = np.copy(bboxes)
 
-    for bbox in bboxes:
-        if len(bbox) == 0:
-            continue
-        else:
-            mapped_bboxes[:, [0, 2]] += partial_frame_offset[0]
-            mapped_bboxes[:, [1, 3]] += partial_frame_offset[1]
-
-    return mapped_bboxes
+    if len(bboxes) == 0:
+        return mapped_bboxes
+    else:
+        mapped_bboxes[:, [0, 2]] += partial_frame_offset[0]
+        mapped_bboxes[:, [1, 3]] += partial_frame_offset[1]
+        return mapped_bboxes
 
 
 def merge_partial_pred_bbox(pred_bbox_list):
@@ -65,6 +64,5 @@ def merge_partial_pred_bbox(pred_bbox_list):
             frame_prediction[camera_name] = []
 
         frame_prediction[camera_name].extend(mapped_bboxes)
-    print(frame_prediction)
 
     return frame_prediction

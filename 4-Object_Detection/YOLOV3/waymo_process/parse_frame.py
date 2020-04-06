@@ -123,6 +123,7 @@ def extract_frame_list(input_file, use_single_camera=False, load_one_frame=False
         frame.ParseFromString(bytearray(data.numpy()))
         count += 1
         parsed_frame = extract_image_and_label_from_frame(frame, use_single_camera)
+        print(parsed_frame)
         frame_list.append(parsed_frame)
 
         if load_one_frame:

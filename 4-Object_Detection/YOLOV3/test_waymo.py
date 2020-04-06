@@ -17,7 +17,7 @@ from waymo_process.parse_frame import extract_image_and_label_from_frame, extrac
 from waymo_process.schedule_frame import *
 from waymo_process.partial_frame_postprocess import *
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 # arg parser
 parser = argparse.ArgumentParser()
@@ -45,7 +45,7 @@ input_file = "/home/sl29/data/Waymo/validation/segment-10448102132863604198_472_
 
 # Extract the whole segment, should have 200 frames
 start = time.time()
-frame_list = extract_frame_list(input_file, use_single_camera=False, load_one_frame=True)
+frame_list = extract_frame_list(input_file, use_single_camera=True, load_one_frame=True)
 frame_count = len(frame_list)
 end = time.time()
 print("------------------------------------------------------------------------")

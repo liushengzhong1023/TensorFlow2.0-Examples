@@ -1,5 +1,6 @@
 import math
 import time
+import random
 import numpy as np
 import core.utils as utils
 
@@ -19,16 +20,26 @@ def serialize_full_frames(extracted_frame):
     Serialized full frames. We do not consider any bounding box here.
     '''
     image_queue = []
+    meta_queue = []
 
     for camera_name in extracted_frame:
         image = extracted_frame[camera_name]['image']
-        preprocessed_image = utils.image_preprocess(np.copy(image))
+        preprocessed_image, original_size, new_size = utils.image_preprocess(np.copy(image))
 
         # no batching
         preprocessed_image = preprocessed_image[np.newaxis, ...]
         image_queue.append(preprocessed_image)
 
-    return image_queue
+        # get meta information
+        image_id = extracted_frame[camera_name]['image_id']
+        item = {'image': preprocessed_image,
+                'original_size': original_size,
+                'new_size': new_size,
+                'camera_name': camera_name,
+                'image_id': image_id}
+        meta_queue.append(item)
+
+    return image_queue, meta_queue
 
 
 def serialize_partial_frames(extracted_frame):
@@ -59,22 +70,37 @@ def serialize_partial_frames(extracted_frame):
     return image_queue
 
 
-def prioritize_serialize_partial_frames(extracted_frame):
+def prioritize_serialize_partial_frames(extracted_frame, with_random_boarder=False):
     '''
     Use risk level as priority to schedule the paritial frames in serialized order.
     '''
     image_queue = PriorityQueue()
 
     for camera_name in extracted_frame:
-        frame_id = extracted_frame[camera_name]['frame_id']
+        image_id = extracted_frame[camera_name]['image_id']
         image = extracted_frame[camera_name]['image']
         bbox_list = extracted_frame[camera_name]['bbox_list']
+
+        # original image size
+        original_max_x = image.shape[1]
+        original_max_y = image.shape[0]
+
         for bbox in bbox_list:
             min_x, min_y, max_x, max_y = bbox['value']
+            object_id = bbox['object_id']
+
             min_x = math.floor(min_x)
             min_y = math.floor(min_y)
             max_x = math.ceil(max_x)
             max_y = math.ceil(max_y)
+
+            # add random boarder when extracting the sub frames
+            if with_random_boarder:
+                random_board_len = random.randint(0, 9)
+                min_x = max(0, min_x - random_board_len)
+                min_y = max(0, min_y - random_board_len)
+                max_x = min(original_max_x, max_x + random_board_len)
+                max_y = min(original_max_y, max_y + random_board_len)
 
             # extract partial image
             partial_image = image[min_y:max_y, min_x:max_x, :]
@@ -90,7 +116,8 @@ def prioritize_serialize_partial_frames(extracted_frame):
                     'new_size': new_size,
                     'partial_frame_offset': partial_frame_offset,
                     'camera_name': camera_name,
-                    'frame_id': frame_id}
+                    'image_id': image_id,
+                    'object_id': object_id}
 
             # enque
             image_queue.push(item, priority=bbox['risk'])

@@ -8,7 +8,8 @@ Postprocessing for partial frames. Convert the partial predictions to original f
 
 def postprocess_box_one_batch(pred_bbox, frame_meta):
     '''
-    Post process function for partial frame predictions. Attach necessary meta info to the prediction.
+    Post process function for partial/complete frame predictions. Attach necessary meta info to the prediction.
+    Map the bbox from new sizes back to original sizes.
     TODO: Currently only support one frame per batch.
     '''
     original_image_size = frame_meta['original_size']
@@ -21,10 +22,12 @@ def postprocess_box_one_batch(pred_bbox, frame_meta):
     bboxes = np.array(utils.nms(bboxes, 0.45, method='nms'))
 
     # ensemble prediction item
-    prediction_bbox_item = {'frame_id': frame_meta['frame_id'],
+    prediction_bbox_item = {'image_id': frame_meta['image_id'],
                             'camera_name': frame_meta['camera_name'],
-                            'partial_frame_offset': frame_meta['partial_frame_offset'],
                             'bboxes': bboxes}
+
+    if 'partial_frame_offset' in frame_meta:
+        prediction_bbox_item['partial_frame_offset'] = frame_meta['partial_frame_offset']
 
     return prediction_bbox_item
 
@@ -52,17 +55,34 @@ def merge_partial_pred_bbox(pred_bbox_list):
     frame_prediction = {}
 
     for prediction_bbox_item in pred_bbox_list:
-        frame_id = prediction_bbox_item['frame_id']
-        camera_name = prediction_bbox_item['camera_name']
+        image_id = prediction_bbox_item['image_id']
         bboxes = prediction_bbox_item['bboxes']
         partial_frame_offset = prediction_bbox_item['partial_frame_offset']
 
         # map partial bboxes to global bboxes
         mapped_bboxes = map_partial_bbox_to_global(bboxes, partial_frame_offset)
 
-        if camera_name not in frame_prediction:
-            frame_prediction[camera_name] = []
+        if image_id not in frame_prediction:
+            frame_prediction[image_id] = []
 
-        frame_prediction[camera_name].extend(mapped_bboxes)
+        frame_prediction[image_id].extend(mapped_bboxes)
+
+    return frame_prediction
+
+
+def extract_full_pred_bbox(pred_bbox_list):
+    '''
+    Used by serialized full frame scheduling. Convert bbox list to required format.
+    '''
+    frame_prediction = {}
+
+    for prediction_bbox_item in pred_bbox_list:
+        image_id = prediction_bbox_item['image_id']
+        bboxes = prediction_bbox_item['bboxes']
+
+        if image_id not in frame_prediction:
+            frame_prediction[image_id] = []
+
+        frame_prediction[image_id].extend(bboxes)
 
     return frame_prediction

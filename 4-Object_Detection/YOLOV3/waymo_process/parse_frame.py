@@ -44,7 +44,7 @@ def parse_image_from_buffer(image_buffer):
     return image
 
 
-def extract_image_and_label_from_frame(frame, use_single_camera=False):
+def extract_image_and_label_from_frame(frame, frame_count, use_single_camera=False):
     '''
     Extract the 2d image, and its corresponding labels from the given frame.
     NOTE: 5 cameras deployed (front, front left, front right, side left, side right); JPEG image for each camera.
@@ -75,10 +75,14 @@ def extract_image_and_label_from_frame(frame, use_single_camera=False):
         if image_camera_name not in target_camera_names:
             continue
 
+        # Compute camera name
+        image_id = str(frame.context.name) + '_' + str(frame_count) + '_' + str(image_camera_name)
+
         if image_camera_name not in parsed_frame:
             parsed_frame[image_camera_name] = dict()
         parsed_frame[image_camera_name]['image'] = parse_image_from_buffer(image.image)
         parsed_frame[image_camera_name]['frame_id'] = frame_id
+        parsed_frame[image_camera_name]['image_id'] = image_id
 
     # extract the bounding boxes for each camera
     for camera_label in frame.camera_labels:
@@ -94,6 +98,7 @@ def extract_image_and_label_from_frame(frame, use_single_camera=False):
             for bbox_label in camera_label.labels:
                 bbox = convert_bounding_box(bbox_label.box)
                 bbox_class = int(bbox_label.type)
+                object_id = bbox_label.id
 
                 # get object risk
                 matched_laser_object_id = waymo_find_best_match_id(frame, bbox_label, use_single_camera)
@@ -103,7 +108,10 @@ def extract_image_and_label_from_frame(frame, use_single_camera=False):
                     risk = laser_object_risks[matched_laser_object_id]
 
                 # print(str(matched_laser_object_id) + " " + str(risk))
-                parsed_frame[label_camera_name]['bbox_list'].append({'class': bbox_class, 'value': bbox, 'risk': risk})
+                parsed_frame[label_camera_name]['bbox_list'].append({'class': bbox_class,
+                                                                     'value': bbox,
+                                                                     'risk': risk,
+                                                                     'object_id': object_id})
 
     return parsed_frame
 
@@ -116,21 +124,16 @@ def extract_frame_list(input_file, use_single_camera=False, load_one_frame=False
     video_segment = tf.data.TFRecordDataset(input_file, compression_type='')
 
     frame_list = []
-    count = 0
-    # start = time.time()
+    frame_count = 0
     for data in video_segment:
         frame = open_dataset.Frame()
         frame.ParseFromString(bytearray(data.numpy()))
-        count += 1
-        parsed_frame = extract_image_and_label_from_frame(frame, use_single_camera)
-        print(parsed_frame)
+        parsed_frame = extract_image_and_label_from_frame(frame, frame_count, use_single_camera)
+
         frame_list.append(parsed_frame)
+        frame_count += 1
 
         if load_one_frame:
             break
-    # end = time.time()
-
-    # print("------------------------------------------------------------------------")
-    # print("Average time per frame: %f s" % ((end - start) / count))
 
     return frame_list

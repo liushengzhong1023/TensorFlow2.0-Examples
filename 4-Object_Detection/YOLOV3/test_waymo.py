@@ -6,7 +6,6 @@ import numpy as np
 import core.utils as utils
 import tensorflow as tf
 from core.yolov3 import YOLOv3, decode
-from PIL import Image
 
 from waymo_open_dataset.utils import range_image_utils
 from waymo_open_dataset.utils import transform_utils
@@ -16,117 +15,155 @@ from waymo_open_dataset import dataset_pb2 as open_dataset
 from waymo_process.parse_frame import extract_image_and_label_from_frame, extract_frame_list
 from waymo_process.schedule_frame import *
 from waymo_process.partial_frame_postprocess import *
+from waymo_process.waymo_test_utils import *
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 # arg parser
 parser = argparse.ArgumentParser()
 parser.add_argument("-scheduling_policy", type=str,
                     default="prioritize_serialize_partial_frames",
                     help="The choice of scheduling policy.")
+parser.add_argument("-add_random_boarder", type=bool,
+                    default=False,
+                    help="Flag about whether to add random boarder around bounding boxes")
+parser.add_argument("-GPU", type=bool,
+                    default=True,
+                    help="Flag about wheter to use GPU for inference")
 args = parser.parse_args()
 
-# -----------------------------------------------Load warm up image-----------------------------------------------------
-warmup_input_size = 416
-warmup_image_path = "./docs/kite.jpg"
+if args.GPU:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+else:
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
-original_image = cv2.imread(warmup_image_path)
-original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
-original_image_size = original_image.shape[:2]
 
-warmup_image_data, _, _ = utils.image_preprocess(np.copy(original_image), [warmup_input_size, warmup_input_size])
-warmup_image_data = warmup_image_data[np.newaxis, ...].astype(np.float32)
+def test_single_file(model, input_file, scheduling_policy, with_random_boarder=False):
+    '''
+    The test function for a given input Waymo record.
+    '''
+    # print log information
+    print("Testing: " + input_file)
 
-# -----------------------------------------------Load Waymo data--------------------------------------------------------
-'''
-Output is a numpy array of given size: [1, input_size, input_size, 3], batch size can be changed.
-'''
-input_file = "/home/sl29/data/Waymo/validation/segment-10448102132863604198_472_000_492_000_with_camera_labels.tfrecord"
+    # placehoder for prediction result and time result
+    segment_predictions = dict()
+    segment_times = dict()
 
-# Extract the whole segment, should have 200 frames
-start = time.time()
-frame_list = extract_frame_list(input_file, use_single_camera=True, load_one_frame=True)
-frame_count = len(frame_list)
-end = time.time()
-print("------------------------------------------------------------------------")
-print("Frame count: " + str(frame_count))
-print("File reading and parsing time: %f s" % (end - start))
-
-# ---------------------------------------Initialize input layer and YOLOv3 model----------------------------------------
-# NOTE: the shape param does not include the batch size
-input_layer = tf.keras.layers.Input([None, None, 3])
-feature_maps = YOLOv3(input_layer)
-
-# decode bounding boxes
-bbox_tensors = []
-for i, fm in enumerate(feature_maps):
-    bbox_tensor = decode(fm, i)
-    bbox_tensors.append(bbox_tensor)
-
-model = tf.keras.Model(inputs=input_layer, outputs=bbox_tensors)
-utils.load_weights(model,
-                   "/home/sl29/DeepScheduling/src/TensorFlow2.0-Examples/4-Object_Detection/YOLOV3/yolov3.weights")
-
-# # ---------------------------------------------Scheduling & Inference-------------------------------------------------
-'''
-Each frame is scheduled and predicted in serialized order; the scheduling within each frame is considered.
-
-'''
-# warm up run
-for _ in range(5):
-    pred_bbox = model.predict(warmup_image_data)
-    pred_bbox = [tf.reshape(x, (-1, tf.shape(x)[-1])) for x in pred_bbox]
-    pred_bbox = tf.concat(pred_bbox, axis=0)
-    bboxes = utils.postprocess_boxes(pred_bbox, original_image_size, [warmup_input_size, warmup_input_size], 0.3)
-    bboxes = utils.nms(bboxes, 0.45, method='nms')
-
-start = time.time()
-
-for extracted_frame in frame_list:
-    # scheduling
-    if args.scheduling_policy == "serialize_full_frames":
-        image_queue = serialize_full_frames(extracted_frame)
-    elif args.scheduling_policy == "serialize_partial_frames":
-        image_queue = serialize_partial_frames(extracted_frame)
-    elif args.scheduling_policy == "prioritize_serialize_partial_frames":
-        image_queue, meta_queue = prioritize_serialize_partial_frames(extracted_frame)
-    else:
-        image_queue = batched_partial_frames(extracted_frame)
+    # Extract the whole segment, should have 200 frames
+    start = time.time()
+    frame_list = extract_frame_list(input_file, use_single_camera=True, load_one_frame=True)
+    frame_count = len(frame_list)
     end = time.time()
-    # print("------------------------------------------------------------------------")
-    # print('Batch count: ' + str(len(image_queue)))
+    print("------------------------------------------------------------------------")
+    print("Frame count: " + str(frame_count))
+    print("File reading and parsing time: %f s" % (end - start))
 
-    pred_bbox_list = []
-    for (i, image_batch) in enumerate(image_queue):
-        pred_bbox = model.predict(image_batch)
-        pred_bbox = [tf.reshape(x, (-1, tf.shape(x)[-1])) for x in pred_bbox]
-        pred_bbox = tf.concat(pred_bbox, axis=0)
+    # # ---------------------------------------------Scheduling & Inference---------------------------------------------
+    '''
+    Each frame is scheduled and predicted in serialized order; the scheduling within each frame is considered.
 
-        if args.scheduling_policy == "prioritize_serialize_partial_frames":
+    '''
+    for extracted_frame in frame_list:
+        # scheduling
+        if scheduling_policy == "serialize_full_frames":
+            image_queue, meta_queue = serialize_full_frames(extracted_frame)
+        elif scheduling_policy == "serialize_partial_frames":
+            image_queue = serialize_partial_frames(extracted_frame)
+        elif scheduling_policy == "prioritize_serialize_partial_frames":
+            image_queue, meta_queue = prioritize_serialize_partial_frames(extracted_frame, with_random_boarder)
+        else:
+            image_queue = batched_partial_frames(extracted_frame)
+        print("------------------------------------------------------------------------")
+        print('Batch count: ' + str(len(image_queue)))
+
+        # warm up run for one image
+        warmup_image = image_queue[0]
+        pred_bbox = model.predict(warmup_image)
+
+        # predictions
+        pred_bbox_list = []
+        for (i, image_batch) in enumerate(image_queue):
+            start = time.time()
+            pred_bbox = model.predict(image_batch)
+            pred_bbox = [tf.reshape(x, (-1, tf.shape(x)[-1])) for x in pred_bbox]
+            pred_bbox = tf.concat(pred_bbox, axis=0)
+
+            # count time
+            end = time.time()
+            duration = end - start
+
+            # attach frame meta info to the predicted bbox
             frame_meta = meta_queue[i]
             processed_bboxes = postprocess_box_one_batch(pred_bbox, frame_meta)
             pred_bbox_list.append(processed_bboxes)
 
-    # merge and map partial frame pred bbox
-    frame_pred_bbox = merge_partial_pred_bbox(pred_bbox_list)
+            # update time records
+            if scheduling_policy == "serialize_full_frames":
+                image_id = frame_meta['image_id']
+                segment_times[image_id] = duration
+            elif scheduling_policy == "prioritize_serialize_partial_frames":
+                image_id = frame_meta['image_id']
+                object_id = frame_meta['object_id']
 
-    # show the image and bounding boxes
-    if len(frame_list) == 1:
-        for camera_name in extracted_frame:
-            image = extracted_frame[camera_name]['image']
+                if image_id not in segment_times:
+                    segment_times[image_id] = dict()
 
-            # add bounding boxes if exist
-            if camera_name in frame_pred_bbox:
-                pred_bboxes = frame_pred_bbox[camera_name]
-                image = utils.draw_bbox(image, pred_bboxes)
-            image = Image.fromarray(image)
+                segment_times[image_id][object_id] = duration
 
-            # save file
-            file_path = "/home/sl29/DeepScheduling/figure/visualization"
-            file_name = os.path.join(file_path, open_dataset.CameraName.Name.Name(camera_name) + ".jpg")
-            image.save(file_name)
+        # merge and map partial frame pred bbox
+        if scheduling_policy == "prioritize_serialize_partial_frames":
+            frame_pred_bbox = merge_partial_pred_bbox(pred_bbox_list)
+        else:
+            frame_pred_bbox = extract_full_pred_bbox(pred_bbox_list)
 
-end = time.time()
-print("------------------------------------------------------------------------")
-print("Total inference time: %f s" % (end - start))
-print("Inference time per frame: %f s" % ((end - start) / frame_count))
+        # update output
+        frame_output = get_frame_output(frame_pred_bbox)
+        segment_predictions = merge_frame_predictions(segment_predictions, frame_output)
+
+    return segment_predictions, segment_times
+
+
+if __name__ == "__main__":
+    # -------------------------------------------------- Initialize model ----------------------------------------------
+    # NOTE: the shape param does not include the batch size
+    input_layer = tf.keras.layers.Input([None, None, 3])
+    feature_maps = YOLOv3(input_layer)
+
+    # decode bounding boxes
+    bbox_tensors = []
+    for i, fm in enumerate(feature_maps):
+        bbox_tensor = decode(fm, i)
+        bbox_tensors.append(bbox_tensor)
+
+    model = tf.keras.Model(inputs=input_layer, outputs=bbox_tensors)
+    utils.load_weights(model,
+                       "/home/sl29/DeepScheduling/src/TensorFlow2.0-Examples/4-Object_Detection/YOLOV3/yolov3.weights")
+
+    # -----------------------------------------------Load Waymo data----------------------------------------------------
+    '''
+    Output is a numpy array of given size: [1, input_size, input_size, 3], batch size can be changed.
+    '''
+    input_path = "/home/sl29/data/Waymo/validation"
+    output_path = "/home/sl29/DeepScheduling/src/TensorFlow2.0-Examples/4-Object_Detection/YOLOV3/data/prediction_results"
+    input_files = extract_files(input_path)
+
+    scheduling_policy = args.scheduling_policy
+    use_GPU = args.GPU
+    with_random_boarder = args.add_random_boarder
+
+    # outputfiles
+    predictions_file = get_prediction_file_name(output_path, scheduling_policy, with_random_boarder)
+    times_file = get_time_file_name(output_path, scheduling_policy, use_GPU)
+
+    # placeholder for all predictions
+    predictions = dict()
+    times = dict()
+
+    for input_file in input_files:
+        segment_predictions, segment_times = test_single_file(model, input_file, scheduling_policy, with_random_boarder)
+        predictions = merge_segment_predictions(predictions, input_file, segment_predictions)
+        times = merge_segment_times(times, input_file, segment_times)
+
+    # save predictions to file
+    save_prediction_to_file(predictions, predictions_file)
+    save_time_to_file(times, times_file)

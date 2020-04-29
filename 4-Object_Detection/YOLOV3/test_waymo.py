@@ -2,6 +2,7 @@ import cv2
 import os
 import time
 import argparse
+import random
 import numpy as np
 import core.utils as utils
 import tensorflow as tf
@@ -17,28 +18,34 @@ from waymo_process.schedule_frame import *
 from waymo_process.partial_frame_postprocess import *
 from waymo_process.waymo_test_utils import *
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
 # arg parser
 parser = argparse.ArgumentParser()
 parser.add_argument("-scheduling_policy", type=str,
                     default="prioritize_serialize_partial_frames",
                     help="The choice of scheduling policy.")
-parser.add_argument("-add_random_boarder", type=bool,
-                    default=False,
+parser.add_argument("-add_random_boarder", type=str,
+                    default="False",
                     help="Flag about whether to add random boarder around bounding boxes")
-parser.add_argument("-GPU", type=bool,
-                    default=True,
+parser.add_argument("-GPU", type=str,
+                    default="False",
                     help="Flag about wheter to use GPU for inference")
+parser.add_argument("-sampling", type=str,
+                    default="False",
+                    help="Whether to sample the frames, used for time profiling")
 args = parser.parse_args()
 
-if args.GPU:
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+if args.GPU == "True" or args.GPU == "true":
+    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 else:
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
+# set CPU threads number
+tf.config.threading.set_inter_op_parallelism_threads(2)
+tf.config.threading.set_intra_op_parallelism_threads(2)
+THREADS_NUM = 2 * 2
 
-def test_single_file(model, input_file, scheduling_policy, with_random_boarder=False):
+
+def test_single_file(model, input_file, scheduling_policy, with_random_boarder=False, sampling=False):
     '''
     The test function for a given input Waymo record.
     '''
@@ -51,7 +58,7 @@ def test_single_file(model, input_file, scheduling_policy, with_random_boarder=F
 
     # Extract the whole segment, should have 200 frames
     start = time.time()
-    frame_list = extract_frame_list(input_file, use_single_camera=True, load_one_frame=True)
+    frame_list = extract_frame_list(input_file, use_single_camera=True, load_one_frame=False)
     frame_count = len(frame_list)
     end = time.time()
     print("------------------------------------------------------------------------")
@@ -64,6 +71,12 @@ def test_single_file(model, input_file, scheduling_policy, with_random_boarder=F
 
     '''
     for extracted_frame in frame_list:
+        # sampling the frames
+        if sampling:
+            random_flag = random.random()
+            if random_flag > 0.05:
+                continue
+
         # scheduling
         if scheduling_policy == "serialize_full_frames":
             image_queue, meta_queue = serialize_full_frames(extracted_frame)
@@ -73,12 +86,13 @@ def test_single_file(model, input_file, scheduling_policy, with_random_boarder=F
             image_queue, meta_queue = prioritize_serialize_partial_frames(extracted_frame, with_random_boarder)
         else:
             image_queue = batched_partial_frames(extracted_frame)
-        print("------------------------------------------------------------------------")
-        print('Batch count: ' + str(len(image_queue)))
+        # print("------------------------------------------------------------------------")
+        # print('Image batch count: ' + str(len(image_queue))):
 
         # warm up run for one image
-        warmup_image = image_queue[0]
-        pred_bbox = model.predict(warmup_image)
+        if image_queue:
+            warmup_image = image_queue[0]
+            pred_bbox = model.predict(warmup_image)
 
         # predictions
         pred_bbox_list = []
@@ -148,22 +162,36 @@ if __name__ == "__main__":
     input_files = extract_files(input_path)
 
     scheduling_policy = args.scheduling_policy
-    use_GPU = args.GPU
     with_random_boarder = args.add_random_boarder
+
+    if args.GPU == "True" or args.GPU == "true":
+        use_GPU = True
+    else:
+        use_GPU = False
+
+    if args.sampling == "True" or args.sampling == "true":
+        sampling_flag = True
+    else:
+        sampling_flag = False
 
     # outputfiles
     predictions_file = get_prediction_file_name(output_path, scheduling_policy, with_random_boarder)
-    times_file = get_time_file_name(output_path, scheduling_policy, use_GPU)
+    times_file = get_time_file_name(output_path, scheduling_policy, use_GPU, THREADS_NUM)
 
     # placeholder for all predictions
     predictions = dict()
     times = dict()
 
     for input_file in input_files:
-        segment_predictions, segment_times = test_single_file(model, input_file, scheduling_policy, with_random_boarder)
+        segment_predictions, segment_times = test_single_file(model, input_file,
+                                                              scheduling_policy,
+                                                              with_random_boarder,
+                                                              sampling_flag)
         predictions = merge_segment_predictions(predictions, input_file, segment_predictions)
         times = merge_segment_times(times, input_file, segment_times)
 
     # save predictions to file
-    save_prediction_to_file(predictions, predictions_file)
+    # save_prediction_to_file(predictions, predictions_file)
+
+    # save times to file
     save_time_to_file(times, times_file)

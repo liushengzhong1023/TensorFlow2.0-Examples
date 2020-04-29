@@ -54,14 +54,18 @@ def get_prediction_file_name(output_path, scheduling_policy, with_random_boarder
     return prediction_output_file
 
 
-def get_time_file_name(output_path, scheduling_policy, use_GPU=False):
+def get_time_file_name(output_path, scheduling_policy, use_GPU=False, threads_num=None):
     '''
     Parse the input file to get the corresponding time output file name.
     '''
     if use_GPU:
         time_output_file = os.path.join(output_path, "YOLOv3.time." + scheduling_policy + ".GPU.json")
     else:
-        time_output_file = os.path.join(output_path, "YOLOv3.time." + scheduling_policy + ".CPU.json")
+        if not threads_num:
+            time_output_file = os.path.join(output_path, "YOLOv3.time." + scheduling_policy + ".CPU.json")
+        else:
+            time_output_file = os.path.join(output_path,
+                                            "YOLOv3.time." + scheduling_policy + ".CPU_" + str(threads_num) + ".json")
 
     return time_output_file
 
@@ -123,7 +127,7 @@ def save_prediction_to_file(predictions, output_prediction_file):
     Save the prediction result to the json file.
     '''
     with open(output_prediction_file, "w") as f:
-       f.write(json.dumps(predictions, indent=4))
+        f.write(json.dumps(predictions, indent=4))
 
 
 def save_time_to_file(times, output_times_file):

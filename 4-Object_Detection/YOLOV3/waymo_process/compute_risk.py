@@ -71,7 +71,8 @@ def bb_intersection_over_groundtruth(boxA, boxB):
 
 def find_best_match(target_bbs, bb, rrr=False):
     '''
-    Given the groundtruth bbx and one predicted bb, it returns the maximum iou obtained and the index of the gt bbx.
+    Given the groundtruth camera bbx and one projected lidar bbx, it returns the maximum iou obtained
+    and the index of the gt bbx.
     '''
     iou = []
     for tbb in target_bbs:
@@ -91,6 +92,7 @@ def find_best_match(target_bbs, bb, rrr=False):
 def waymo_find_best_match_id(frame, camera_label, rrr=False, iou_thresh=0.5, use_single_camera=False):
     '''
     Find the best match laser label ID for given camera label.
+    Use the projected lidar labels to find overlapps with camera labels.
     '''
     # process front camera only
     if use_single_camera:

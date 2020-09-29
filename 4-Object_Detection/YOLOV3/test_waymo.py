@@ -27,7 +27,7 @@ parser.add_argument("-add_random_boarder", type=str,
                     default="False",
                     help="Flag about whether to add random boarder around bounding boxes")
 parser.add_argument("-GPU", type=str,
-                    default="False",
+                    default="True",
                     help="Flag about wheter to use GPU for inference")
 parser.add_argument("-sampling", type=str,
                     default="False",
@@ -35,14 +35,14 @@ parser.add_argument("-sampling", type=str,
 args = parser.parse_args()
 
 if args.GPU == "True" or args.GPU == "true":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 else:
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 # set CPU threads number
-tf.config.threading.set_inter_op_parallelism_threads(2)
-tf.config.threading.set_intra_op_parallelism_threads(2)
-THREADS_NUM = 2 * 2
+tf.config.threading.set_inter_op_parallelism_threads(16)
+tf.config.threading.set_intra_op_parallelism_threads(16)
+THREADS_NUM = 16 * 16
 
 
 def test_single_file(model, input_file, scheduling_policy, with_random_boarder=False, sampling=False):
@@ -92,13 +92,13 @@ def test_single_file(model, input_file, scheduling_policy, with_random_boarder=F
         # warm up run for one image
         if image_queue:
             warmup_image = image_queue[0]
-            pred_bbox = model.predict(warmup_image)
+            pred_bbox = model.predict_on_batch(warmup_image)
 
         # predictions
         pred_bbox_list = []
         for (i, image_batch) in enumerate(image_queue):
             start = time.time()
-            pred_bbox = model.predict(image_batch)
+            pred_bbox = model.predict_on_batch(image_batch)
             pred_bbox = [tf.reshape(x, (-1, tf.shape(x)[-1])) for x in pred_bbox]
             pred_bbox = tf.concat(pred_bbox, axis=0)
 
